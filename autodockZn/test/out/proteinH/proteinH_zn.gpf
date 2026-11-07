@@ -1,0 +1,31 @@
+npts 48 40 52                        # num.grid points in xyz
+parameter_file /home/lpw/dock_scripts/autodock/autodockZn/AD4Zn.dat # force field default parameter file
+gridfld proteinH_zn.maps.fld         # grid_data_file
+spacing 0.375                        # spacing(A)
+receptor_types A C TZ NA ZN OA N P S SA HD # receptor atom types
+ligand_types HD C A N NA OA F P SA S Cl Br I # ligand atom types
+receptor proteinH_zn.pdbqt           # macromolecule
+gridcenter 17.124 133.779 -0.813     # xyz-coordinates or auto
+smooth 0.5                           # store minimum energy w/in rad(A)
+map proteinH_zn.HD.map               # atom-specific affinity map
+map proteinH_zn.C.map                # atom-specific affinity map
+map proteinH_zn.A.map                # atom-specific affinity map
+map proteinH_zn.N.map                # atom-specific affinity map
+map proteinH_zn.NA.map               # atom-specific affinity map
+map proteinH_zn.OA.map               # atom-specific affinity map
+map proteinH_zn.F.map                # atom-specific affinity map
+map proteinH_zn.P.map                # atom-specific affinity map
+map proteinH_zn.SA.map               # atom-specific affinity map
+map proteinH_zn.S.map                # atom-specific affinity map
+map proteinH_zn.Cl.map               # atom-specific affinity map
+map proteinH_zn.Br.map               # atom-specific affinity map
+map proteinH_zn.I.map                # atom-specific affinity map
+elecmap proteinH_zn.e.map            # electrostatic potential map
+dsolvmap proteinH_zn.d.map              # desolvation potential map
+dielectric -0.1465                   # <0, AD4 distance-dep.diel;>0, constant
+nbp_r_eps 0.25 23.2135 12 6 NA TZ
+nbp_r_eps 2.1   3.8453 12 6 OA Zn
+nbp_r_eps 2.25  7.5914 12 6 SA Zn
+nbp_r_eps 1.0   0.0    12 6 HD Zn
+nbp_r_eps 2.0   0.0060 12 6 NA Zn
+nbp_r_eps 2.0   0.2966 12 6  N Zn

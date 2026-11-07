@@ -20,42 +20,18 @@ from joblib import Parallel, delayed
 from tqdm_joblib import tqdm_joblib
 from tqdm import tqdm
 import pandas as pd
+from utils.file_utils import copy_file, load_mol
+from utils.data_utils import box_size_to_npts, compute_box_bbox
+
+
 
 from .config import (GRID_SPACING, PREPARE_DPF4, PREPARE_GPF4, PREPARE_RECEPTOR4,
                      run_autogrid4, run_mgltools_script)
-from utils.pocket_utils import load_ligand_coords, compute_box_bbox
 
-
-def parse_triplet(value):
-    if isinstance(value, (list, tuple)):
-        if len(value) != 3:
-            raise ValueError(f"Expected three values, got: {value}")
-        return tuple(float(x) for x in value)
-    parts = [float(x.strip()) for x in str(value).split(",")]
-    if len(parts) != 3:
-        raise ValueError(f"Expected three comma-separated values, got: {value}")
-    return tuple(parts)
-
-
-def box_size_to_npts(box_size):
-    npts = []
-    for size in box_size:
-        count = int(math.ceil(size / GRID_SPACING))
-        if count % 2 != 0:
-            count += 1
-        npts.append(count)
-    return tuple(npts)
-
-
-def copy_if_needed(src, dst):
-    if Path(src).resolve() != Path(dst).resolve():
-        shutil.copy2(src, dst)
 
 
 def prepare_receptor_pdbqt(receptor_pdb, output_pdbqt):
     """Convert receptor PDB -> PDBQT via MGLTools prepare_receptor4.py."""
-    output_pdbqt = Path(output_pdbqt)
-    output_pdbqt.parent.mkdir(parents=True, exist_ok=True)
     run_mgltools_script(
         PREPARE_RECEPTOR4,
         ["-r", str(receptor_pdb), "-o", str(output_pdbqt)],
@@ -89,8 +65,8 @@ def run_grid(ligand_pdbqt, receptor_pdbqt, output_dir, box_center, box_size):   
 
     local_ligand = output_dir / ligand_pdbqt.name
     local_receptor = output_dir / receptor_pdbqt.name
-    copy_if_needed(ligand_pdbqt, local_ligand)
-    copy_if_needed(receptor_pdbqt, local_receptor)
+    copy_file(ligand_pdbqt, local_ligand)
+    copy_file(receptor_pdbqt, local_receptor)
 
     gpf_path = output_dir / f"{local_ligand.stem}_{local_receptor.stem}.gpf"
     dpf_path = output_dir / f"{local_ligand.stem}_{local_receptor.stem}.dpf"
@@ -148,44 +124,28 @@ def run_batch(ligand_csv, id_column, ligand_dir, receptor_pdbqt, output_dir,
     return success, failures
 
 
-def resolve_box(args):
-    """Compute (box_center, box_size) from CLI args. Exactly one source must be given."""
-    has_ref = args.reference_ligand is not None
-    has_box = args.box_center is not None or args.box_size is not None
-    if has_ref == has_box:
-        raise ValueError("Use either --reference-ligand or --box-center+--box-size (not both, not neither)")
-    if (args.box_center is None) != (args.box_size is None):
-        raise ValueError("--box-center and --box-size must be used together")
-
-    if has_ref:
-        coords = load_ligand_coords(Path(args.reference_ligand).resolve())
-        return compute_box_bbox(coords, args.padding)
-    return parse_triplet(args.box_center), parse_triplet(args.box_size)
 
 
-def resolve_receptor_pdbqt(args, output_dir):
-    """Return a Path to the receptor PDBQT, converting from PDB if needed."""
-    if args.receptor_pdbqt is not None:
-        return Path(args.receptor_pdbqt).resolve()
-    receptor_pdb = Path(args.receptor_pdb).resolve()
-    receptor_pdbqt = output_dir / f"{receptor_pdb.stem}.pdbqt"
-    print(f"Preparing receptor: {receptor_pdb.name} -> {receptor_pdbqt.name}", file=sys.stderr)
-    prepare_receptor_pdbqt(receptor_pdb, receptor_pdbqt)
-    return receptor_pdbqt
 
 
 def main(args):
-    if (args.receptor_pdb is None) == (args.receptor_pdbqt is None):
+    if args.receptor_pdb is None:
         raise ValueError("Provide exactly one of --receptor-pdb or --receptor-pdbqt")
 
     output_dir = Path(args.output_dir).resolve() if args.output_dir else Path.cwd()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    box_center, box_size = resolve_box(args)
+    if args.reference_lig_file is not None:
+        ref_lig_mol = load_mol(args.reference_lig_file)
+        ref_coords = ref_lig_mol.GetConformer().GetPositions()
+        box_center, box_size = compute_box_bbox(ref_coords, args.padding)
+    else:
+        assert box_center is not None and box_size is not None
     print(f"Box center: ({box_center[0]:.3f}, {box_center[1]:.3f}, {box_center[2]:.3f})", file=sys.stderr)
     print(f"Box size:   ({box_size[0]:.3f}, {box_size[1]:.3f}, {box_size[2]:.3f})", file=sys.stderr)
-
-    receptor_pdbqt = resolve_receptor_pdbqt(args, output_dir)
+    output_pdbqt = Path(output_pdbqt)
+    output_pdbqt.parent.mkdir(parents=True, exist_ok=True)
+    receptor_pdbqt = prepare_receptor_pdbqt(args, output_dir)
 
     if args.ligand_pdbqt is not None:
         ligand_pdbqt = Path(args.ligand_pdbqt).resolve()
@@ -212,12 +172,11 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--ligand-pdbqt",     type=Path, help="Single ligand PDBQT (single-ligand mode).")
+    parser.add_argument("--reference_lig_file",     type=Path, help="Single ligand PDBQT (single-ligand mode).")
     parser.add_argument("--id-column",        type=str, help="Column in ligand CSV used as ligand ID.")
     parser.add_argument("--ligand-csv",       type=Path, default='/data3/lpw/data/dock_data/zinc_50.csv', help="CSV file containing a SMILES column.")
     parser.add_argument("--ligand-dir",       type=Path, default='/data3/lpw/dock_workdir/autodock/test/ligands', help="Directory containing ligand PDBQT files.")
     parser.add_argument("--receptor-pdb",     type=Path, default='/data3/lpw/dock_workdir/3I03/3I03_protein.pdb', help="Receptor PDB; auto-converted to PDBQT via MGLTools.")
-    parser.add_argument("--receptor-pdbqt",   type=Path, default=None, help="Already-prepared receptor PDBQT.")
     parser.add_argument("--reference-ligand", type=Path, default='/data3/lpw/dock_workdir/3I03/3I03_ligand.sdf', help="Reference ligand for box envelope.")
     parser.add_argument("--box-center",       type=float, nargs=3, default=None, metavar=("X", "Y", "Z"))
     parser.add_argument("--box-size",         type=float, nargs=3, default=None, metavar=("X", "Y", "Z"))

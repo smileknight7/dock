@@ -1,0 +1,9 @@
+Vina Python API; scoring=ad4
+ligand=/home/lpw/dock_scripts/autodock/autodockZn/test/out/1s63_ligand.pdbqt
+maps=/home/lpw/dock_scripts/autodock/autodockZn/test/out/proteinH/proteinH_zn
+exhaustiveness=32
+cpu=1
+num_modes=9
+energy_range=3.0
+seed=0
+best_affinity=-11.674

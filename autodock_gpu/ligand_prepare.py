@@ -18,8 +18,8 @@ from rdkit.Chem import AllChem
 from joblib import Parallel, delayed
 from tqdm import tqdm
 from tqdm_joblib import tqdm_joblib
-from utils.file_utils import load_mol, write_pdbqt, load_idx_list, collect_ligand_files, read_smiles_records
-from utils.data_utils import prepare_rdkit_molecule
+from utils.file_utils import load_mol, load_idx_list, collect_ligand_files, read_smiles_records
+from utils.data_utils import generate_conformer, prepare_ligand
 import os
 
 
@@ -27,9 +27,9 @@ import os
 def process_one(ligand_id, source, output_dir, is_smiles):
     output_file = Path(output_dir) / f"{ligand_id}.pdbqt"
     mol = load_mol(source, is_smiles)
-    mol = prepare_rdkit_molecule(mol)
+    mol = generate_conformer(mol)
     mol.SetProp("_Name", ligand_id)
-    write_pdbqt(mol, output_file)
+    prepare_ligand(mol, output_file)
     return str(output_file)
 
 
@@ -80,7 +80,7 @@ def main(args):
                 items.append((id, id_file))
         is_smiles = False
     elif args.ligand_dir is not None and args.data_list is None:
-        items = collect_ligand_files(args.ligand_dir)
+        items = collect_ligand_files(args.ligand_dir)                   # 这里这个函数可以用于autodock那个地方用于抽提
         is_smiles = False
     else:
         items = read_smiles_records(args.ligand_csv, args.id_column, args.smiles_column)

@@ -1,3 +1,9 @@
+
+
+
+
+
+# 好像是说autodock 一般不需要裁剪口袋，直接在grid盒子内进行grid就可以了
 #!/usr/bin/env python3
 """Crop a binding pocket PDB. Unified across autodock / autodock_gpu / vina.
 

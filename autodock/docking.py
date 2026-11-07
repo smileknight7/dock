@@ -6,7 +6,7 @@
 
 """
 
-from __future__ import annotations
+
 import argparse
 import sys
 from pathlib import Path
@@ -14,53 +14,13 @@ from pathlib import Path
 from joblib import Parallel, delayed
 from tqdm import tqdm
 from tqdm_joblib import tqdm_joblib
-from .config import run_autodock4
+from ..utils.config import run_autodock4
+from utils.data_utils import parse_dlg_results
 
 
-FINAL_SUMMARY_PREFIXES = (
-    "USER    Run =",
-    "USER    Cluster Rank =",
-    "USER    Number of conformations in this cluster =",
-    "USER    (1) Final Intermolecular Energy",
-    "USER        vdW + Hbond + desolv Energy",
-    "USER        Electrostatic Energy",
-    "USER    (2) Final Total Internal Energy",
-    "USER    (3) Torsional Free Energy",
-    "USER    (4) Unbound System's Energy",
-)
-
-
-def run_autodock(dpf_path, dlg_path):
-    run_autodock4(dpf_path, dlg_path)
-    return str(dlg_path)
-
-
-def parse_dlg_results(dlg_path):
-    lines = Path(dlg_path).read_text(encoding="utf-8").splitlines()
-    current_run = None
-    run_energies = []
-    final_summary = []
-    in_final_model = False
-
-    for line in lines:
-        stripped = line.strip()
-        if line.startswith("DOCKED: USER    Run ="):
-            current_run = int(line.split("=", 1)[1].strip())
-        elif current_run is not None and "Estimated Free Energy of Binding" in line and line.startswith("DOCKED: USER"):
-            run_energies.append(f"Run {current_run}: {stripped}")
-        elif line.startswith("MODEL"):
-            in_final_model = True
-        elif in_final_model and (stripped.startswith(FINAL_SUMMARY_PREFIXES) or
-                                  ("Estimated Free Energy of Binding" in line and line.startswith("USER"))):
-            final_summary.append(stripped)
-            if stripped.startswith("USER    (4) Unbound System's Energy"):
-                break
-
-    summary = list(run_energies)
-    if final_summary:
-        summary.append("Best cluster summary:")
-        summary.extend(final_summary)
-    return summary
+# def run_autodock(dpf_path, dlg_path):                 # 这个函数可以用来捕获异常？？？
+#     run_autodock4(dpf_path, dlg_path)
+#     return str(dlg_path)
 
 
 def collect_jobs(dpf_dir, output_dir, skip_existing):
@@ -90,14 +50,14 @@ def run_batch(dpf_dir, output_dir, num_workers, skip_existing):
     if num_workers == 1:
         for dpf_path, dlg_path in tqdm(jobs, desc="Running AutoDock4"):
             try:
-                run_autodock(dpf_path, dlg_path)
+                run_autodock4(dpf_path, dlg_path)
                 success[dpf_path.stem] = str(dlg_path)
             except Exception as exc:
                 failures.append((dpf_path.stem, str(exc)))
     else:
         with tqdm_joblib(total=len(jobs), desc="Running AutoDock4"):
             results = Parallel(n_jobs=num_workers, return_exceptions=True)(
-                delayed(run_autodock)(dpf_path, dlg_path) for dpf_path, dlg_path in jobs
+                delayed(run_autodock4)(dpf_path, dlg_path) for dpf_path, dlg_path in jobs
             )
             
         for (dpf_path, dlg_path), result in zip(jobs, results):
@@ -115,7 +75,7 @@ def main(args):
         output_dir = Path(args.output_dir).resolve() if args.output_dir else dpf_path.parent
         output_dir.mkdir(parents=True, exist_ok=True)
         dlg_path = output_dir / dpf_path.with_suffix(".dlg").name
-        run_autodock(dpf_path, dlg_path)
+        run_autodock4(dpf_path, dlg_path)
         for line in parse_dlg_results(dlg_path):
             print(line)
         return 0

@@ -225,3 +225,18 @@ if __name__ == "__main__":
 
 # 调试
 # python -m autodock_gpu.analysis_result --input-dir /data3/lpw/dock_workdir/autodock_gpu/cov200_test/dock_result --gt-ligand-dir /data3/lpw/data/covdocker/data/processed/bonded --output-dir /data3/lpw/dock_workdir/autodock_gpu/cov200_test/analysis --export-poses
+
+
+
+
+
+SUMMARY_KEYWORDS = ("Estimated Free Energy of Binding", "USER    Run =", "USER    Cluster Rank =")
+
+
+
+def parse_dlg_summary(dlg_path):
+    dlg_path = Path(dlg_path)
+    if not dlg_path.exists():
+        return []
+    return [l.strip() for l in dlg_path.read_text(errors="replace").splitlines()
+            if any(k in l for k in SUMMARY_KEYWORDS)]

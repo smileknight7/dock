@@ -6,6 +6,9 @@ from biopandas.pdb import PandasPdb
 import  pandas as pd
 import numpy as np
 from scipy import spatial
+from meeko import MoleculePreparation, PDBQTWriterLegacy
+from pathlib import  Path
+import math
 
 def canonicalize_mol(mol):
     Chem.MolToSmiles(mol)
@@ -14,7 +17,7 @@ def canonicalize_mol(mol):
     return canonical_mol
 
     
-def prepare_rdkit_molecule(mol) -> Chem.Mol:
+def generate_conformer(mol) -> Chem.Mol:
     mol = canonicalize_mol(mol)
     mol.RemoveAllConformers()  
     mol = Chem.AddHs(mol) 
@@ -30,6 +33,16 @@ def prepare_rdkit_molecule(mol) -> Chem.Mol:
     elif AllChem.UFFHasAllMoleculeParams(mol):
         AllChem.UFFOptimizeMolecule(mol, maxIters=200)
     return mol
+
+# 写pdbqt
+def prepare_ligand(mol, output_file):
+    mk_prep = MoleculePreparation()
+    mol_status = mk_prep.prepare(mol)[0]
+    text, ok, err = PDBQTWriterLegacy.write_string(mol_status)
+    if not ok:
+        raise RuntimeError(f"Meeko PDBQT write failed: {err}")
+    Path(output_file).write_text(text)
+
 
 
 def parse_protein(pdb_path):
@@ -84,6 +97,62 @@ def compute_box_bbox(coords, padding):
     center = tuple(float(v) for v in (lo + hi) / 2)
     size = tuple(float(v) for v in (hi - lo) + 2 * padding)
     return center, size
+
+def box_size_to_npts(box_size):
+    npts = []
+    for size in box_size:
+        count = int(math.ceil(size / GRID_SPACING))
+        if count % 2 != 0:
+            count += 1
+        npts.append(count)
+    return tuple(npts)
+
+
+
+# 解析输出的文件内容
+FINAL_SUMMARY_PREFIXES = (
+    "USER    Run =",
+    "USER    Cluster Rank =",
+    "USER    Number of conformations in this cluster =",
+    "USER    (1) Final Intermolecular Energy",
+    "USER        vdW + Hbond + desolv Energy",
+    "USER        Electrostatic Energy",
+    "USER    (2) Final Total Internal Energy",
+    "USER    (3) Torsional Free Energy",
+    "USER    (4) Unbound System's Energy",
+)
+
+
+def parse_dlg_results(dlg_path):
+    lines = Path(dlg_path).read_text(encoding="utf-8").splitlines()
+    current_run = None
+    run_energies = []
+    final_summary = []
+    in_final_model = False
+
+    for line in lines:
+        stripped = line.strip()
+        if line.startswith("DOCKED: USER    Run ="):
+            current_run = int(line.split("=", 1)[1].strip())
+        elif current_run is not None and "Estimated Free Energy of Binding" in line and line.startswith("DOCKED: USER"):
+            run_energies.append(f"Run {current_run}: {stripped}")
+        elif line.startswith("MODEL"):
+            in_final_model = True
+        elif in_final_model and (stripped.startswith(FINAL_SUMMARY_PREFIXES) or
+                                  ("Estimated Free Energy of Binding" in line and line.startswith("USER"))):
+            final_summary.append(stripped)
+            if stripped.startswith("USER    (4) Unbound System's Energy"):
+                break
+
+    summary = list(run_energies)
+    if final_summary:
+        summary.append("Best cluster summary:")
+        summary.extend(final_summary)
+    return summary
+
+
+
+
 
 
 # 这两个函数好像没什么用

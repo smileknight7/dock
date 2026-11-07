@@ -10,10 +10,10 @@ from utils.file_utils import load_mol, load_idx_list
 import argparse
 from meeko.gridbox import get_gpf_string, boron_silicon_atompar       # 硼元和硅是补充元素
 from utils.data_utils import parse_triplet, compute_box_bbox
-from .config import AUTOGRID4_BINARY, any_lig_base_types, rec_types
+from .config import any_lig_base_types, rec_types
 from tqdm import tqdm
 import sys
-
+from utils.config import run_autogrid4
 
 
 
@@ -32,27 +32,11 @@ p.parent.name	所在目录的名字	pocket
 
 
 
-def run_autogrid(gpf_path, glg_path, binary):
-    gpf_path = Path(gpf_path)
-    r = subprocess.run(
-        [str(binary), "-p", str(gpf_path), "-l", str(glg_path)],
-        capture_output=True, text=True, cwd=str(gpf_path.parent),
-    )
-    if r.returncode != 0:
-        raise RuntimeError(r.stderr or r.stdout or "autogrid4 failed")
 
 
 
-def prepare_receptor(receptor_pdb, output_pdbqt, output_gpf,                  
-                     box_center, box_size,                                          
-                     charge_model=None, allow_bad_res=False):
+def prepare_receptor(receptor_pdb, output_pdbqt, output_gpf):
     """Run mk_prepare_receptor.py CLI to produce PDBQT + GPF."""
-    output_pdbqt = Path(output_pdbqt)
-    output_gpf = Path(output_gpf)
-    output_dir = output_pdbqt.parent
-    output_dir.mkdir(parents=True, exist_ok=True)
-    basename = output_pdbqt.with_suffix("")
-    
     mk_prep = MoleculePreparation()
     chem_templates = ResidueChemTemplates.create_from_defaults()
     pdb_str = Path(receptor_pdb).read_text()                                    # 这里的输入要求是pbd_string是一个字符串,而不是字符串列表
@@ -73,7 +57,6 @@ def run_grid(receptor_pdb, output_dir, *,
     receptor_pdb = Path(receptor_pdb).resolve()
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    binary = Path(binary or AUTOGRID4_BINARY).resolve()
 
     if reference_lig_file is not None:
         ref_lig_mol = load_mol(reference_lig_file)
@@ -95,8 +78,8 @@ def run_grid(receptor_pdb, output_dir, *,
         charge_model=charge_model, allow_bad_res=allow_bad_res,
     )
 
-    ff_name = "boron-silicon-atom_par.dat"
-    (output_dir / ff_name).write_text(boron_silicon_atompar)
+    ff_name = "boron-silicon-atom_par.dat"               # 这里是meeko携带的使用B或者是SI只能用一个进行grid
+    (output_dir / ff_name).write_text(boron_silicon_atompar)                            
     gpf_string, _ = get_gpf_string(box_center, box_size, output_pdbqt.name,
                                 rec_types, any_lig_base_types,
                                 ff_param_fname=ff_name)
@@ -105,7 +88,7 @@ def run_grid(receptor_pdb, output_dir, *,
     
     glg_path = output_gpf.with_suffix(".glg")
     print(f"Running autogrid4: {output_gpf.name}", file=sys.stderr)
-    run_autogrid(output_gpf, glg_path, binary)                                      # grid部分一定要用autodock的
+    run_autogrid4(output_gpf, glg_path)                                      # grid部分一定要用autodock的
 
     print(f"OK\t{base}\t{output_pdbqt}")
     print(f"receptor_gpf\t{output_gpf}", file=sys.stderr)

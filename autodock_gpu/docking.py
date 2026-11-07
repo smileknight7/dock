@@ -26,29 +26,9 @@ from tqdm_joblib import tqdm_joblib
 from utils.file_utils import load_idx_list
 from .config import (ADGPU_BINARY, CONDA_PREFIX, DEFAULT_DEVICE,
                      DEFAULT_NRUN, DEFAULT_NEV, DEFAULT_HEURISTICS)
-
+from  utils.config import run_command
 
 SUMMARY_KEYWORDS = ("Estimated Free Energy of Binding", "USER    Run =", "USER    Cluster Rank =")
-
-
-def make_env(conda_prefix):
-    env = dict(os.environ)
-    lib = str(Path(conda_prefix).resolve() / "lib")
-    ld = env.get("LD_LIBRARY_PATH", "")
-    env["LD_LIBRARY_PATH"] = f"{lib}:{ld}" if ld else lib
-    return env
-
-
-def run_subprocess(cmd, cwd, conda_prefix):
-    r = subprocess.run(cmd, capture_output=True, text=True, cwd=str(cwd), env=make_env(conda_prefix))
-    if r.returncode != 0:
-        raise RuntimeError(r.stderr or r.stdout or "AutoDock-GPU failed")
-
-
-
-
-
-
 
 
 def run_autodock_gpu(ligand_pdbqt, fld_path, output_dir, *,
@@ -73,7 +53,7 @@ def run_autodock_gpu(ligand_pdbqt, fld_path, output_dir, *,
         "--xmloutput", "1",
         "--dlgoutput", "1",
     ]
-    run_subprocess(cmd, output_dir, conda_prefix)
+    run_command(cmd, output_dir, conda_prefix)
     return str(output_dir / f"{name}.dlg")
 
 # dpf是autodock预处理的输入文件
@@ -93,20 +73,8 @@ def run_autodock_gpu_dpf(dpf_path, output_dir, *,
         "--xmloutput", "1",
         "--dlgoutput", "1",
     ]
-    run_subprocess(cmd, output_dir, conda_prefix)
+    run_command(cmd, output_dir, conda_prefix)
     return str(output_dir / f"{name}.dlg")
-
-
-def parse_dlg_summary(dlg_path):
-    dlg_path = Path(dlg_path)
-    if not dlg_path.exists():
-        return []
-    return [l.strip() for l in dlg_path.read_text(errors="replace").splitlines()
-            if any(k in l for k in SUMMARY_KEYWORDS)]
-
-
-
-
 
 
 def collect_paired_jobs(ligand_dir, grid_dir, data_list, output_dir, skip_existing):

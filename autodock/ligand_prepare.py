@@ -13,15 +13,20 @@ import sys
 from pathlib import Path
 import pandas as pd
 from rdkit import Chem
-from utils.file_utils import read_rdkit_mol, prepare_rdkit_molecule, convert_smiles_to_pdb
-from .config import PREPARE_LIGAND4, run_mgltools_script
+from utils.file_utils import load_mol
+from ..utils.config import PREPARE_LIGAND4, run_mgltools_script
 from joblib import Parallel, delayed
 from tqdm_joblib import tqdm_joblib
 from tqdm import tqdm
+from meeko import MoleculePreparation, PDBQTWriterLegacy
+from utils.data_utils import generate_conformer, prepare_ligand
 
-def single_ligand_run(cache_file, output_file, cache_dir):
-    run_mgltools_script(PREPARE_LIGAND4, ["-l", str(cache_file), "-o", str(output_file)], cache_dir)
 
+
+
+# meeko做法
+# def single_ligand_run(cache_file, output_file, cache_dir):
+#     run_mgltools_script(PREPARE_LIGAND4, ["-l", str(cache_file), "-o", str(output_file)], cache_dir)
 
 
 def prepare_ligand_file(ligand_file, cache_dir, output_dir):
@@ -32,51 +37,49 @@ def prepare_ligand_file(ligand_file, cache_dir, output_dir):
     ligand_id = Path(ligand_file).stem
     cache_file = cache_dir / f"{ligand_id}.pdb"
     output_file = output_dir / f"{ligand_id}.pdbqt"
-    ligand_mol = read_rdkit_mol(ligand_file)
-    ligand_mol = prepare_rdkit_molecule(ligand_mol, str(ligand_file))
+    ligand_mol = load_mol(ligand_file)
+    ligand_mol = generate_conformer(ligand_mol, str(ligand_file))
     Chem.MolToPDBFile(ligand_mol, str(cache_file))
-    single_ligand_run(cache_file, output_file, cache_dir)
+    prepare_ligand(ligand_mol, output_file)
+    # autodock的处理方法
+    # single_ligand_run(cache_file, output_file, cache_dir)
     return 0
 
 
 
-def read_smiles_records(csv_path, cache_dir, id_column=None, smiles_column="smiles"):
-    cache_dir = Path(cache_dir)
-    cache_dir.mkdir(parents=True, exist_ok=True)
+def prepare_ligand_files(ligand_dir):
+    ligand_dir = Path(ligand_dir)
+    success_list = []
+    for ligand_file in ligand_dir.iterdir():            # 小分子最好使用sdf/mol2格式，使用pdb格式可能会出错
+        lig_id = ligand_file.stem
+        try:
+            ligand_mol = load_mol(str(ligand_file))
+            ligand_mol = generate_conformer(ligand_mol, str(ligand_file))
+            success_list.append((lig_id, ligand_mol))
+        except Exception as e:
+            print(f"FAIL {lig_id}: {e}", file=sys.stderr)
+    return success_list
+
+
+
+
+def read_smiles_records(csv_path, id_column=None, smiles_column="smiles"):
+
     df = pd.read_csv(csv_path)
     items = [(str(row[id_column]) if id_column else f'ligand_{i:04d}',
               str(row[smiles_column])) for i, row in df.iterrows()]
-
     success_list = []
     for item in items:
+        lig_id = item[0]
         try:
-            cache_file = cache_dir / f"{item[0]}.pdb"
-            convert_smiles_to_pdb(item[1], cache_file)
-            success_list.append(item[0])
+            lig_mol = load_mol(item, is_smiles=True)
+            success_list.append(lig_id, lig_mol)
         except Exception as e:
             print(f"FAIL {item[0]}: {e}", file=sys.stderr)
     return success_list
 
 
 
-def prepare_ligand_files(ligand_dir, cache_dir):
-    ligand_dir = Path(ligand_dir)
-    cache_dir = Path(cache_dir)
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    success_list = []
-    for ligand_file in ligand_dir.iterdir():            # 小分子最好使用sdf/mol2格式，使用pdb格式可能会出错
-        if ligand_file.suffix.lower() not in {".sdf", ".mol2", ".mol", ".pdb"}:
-            continue
-        ligand_id = ligand_file.stem
-        cache_file = cache_dir / f"{ligand_id}.pdb"
-        try:
-            ligand_mol = read_rdkit_mol(str(ligand_file))
-            ligand_mol = prepare_rdkit_molecule(ligand_mol, str(ligand_file))
-            Chem.MolToPDBFile(ligand_mol, str(cache_file))
-            success_list.append(ligand_id)
-        except Exception as e:
-            print(f"FAIL {ligand_id}: {e}", file=sys.stderr)
-    return success_list
 
 
 def run_batch(ligand_list, cache_dir, output_dir, num_workers):
@@ -88,30 +91,28 @@ def run_batch(ligand_list, cache_dir, output_dir, num_workers):
     success = {}
     failures = []
     if num_workers == 1:
-        for ligand_id in tqdm(ligand_list, desc="Processing ligands"):
-            cache_file = cache_dir / f"{ligand_id}.pdb"
-            prepared_file = output_dir / f"{ligand_id}.pdbqt"
+        for lig_id, lig_mol in tqdm(ligand_list, desc="Processing ligands"):
+            prepared_file = output_dir / f"{lig_id}.pdbqt"
             try:
-                single_ligand_run(cache_file, prepared_file, cache_dir)
-                success[ligand_id] = str(prepared_file)
+                prepare_ligand( lig_mol, prepared_file)
+                success[lig_id] = str(prepared_file)
             except Exception as exc:
-                failures.append((ligand_id, str(exc)))
+                failures.append((lig_id, str(exc)))
     else:
         with tqdm_joblib(total=len(ligand_list), desc="Processing ligands"):              # ligand_list 这个就相当于是jobs好吧
             results = Parallel(n_jobs=num_workers, return_exceptions=True)(
-                delayed(single_ligand_run)(
-                    cache_dir / f"{ligand_id}.pdb",
-                    output_dir / f"{ligand_id}.pdbqt",
-                    cache_dir,
+                delayed(prepare_ligand)(
+                    lig_mol, 
+                    output_dir / f"{lig_id}.pdbqt",
                 )
-                for ligand_id in ligand_list
+                for lig_id, lig_mol in ligand_list
             )
-        for ligand_id, result in zip(ligand_list, results):
-            prepared_file = output_dir / f"{ligand_id}.pdbqt"
+        for lig, result in zip(ligand_list, results):
+            prepared_file = output_dir / f"{lig[0]}.pdbqt"
             if isinstance(result, Exception):
-                failures.append((ligand_id, str(result)))
+                failures.append((lig[0], str(result)))
             else:
-                success[ligand_id] = str(prepared_file)
+                success[lig[0]] = str(prepared_file)
 
     return success, failures
 
