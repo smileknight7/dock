@@ -30,7 +30,7 @@ p.parent.name	所在目录的名字	pocket
 '''
 
 
-from autodock.config import GRID_SPACING, run_command, run_mgltools_script
+from utils.config import GRID_SPACING, run_command, run_mgltools_script
 
 
 PREPARE_GPF4ZN = Path(__file__).with_name("prepare_gpf4zn.py")

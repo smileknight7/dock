@@ -14,7 +14,7 @@ from pathlib import Path
 from joblib import Parallel, delayed
 from tqdm import tqdm
 from tqdm_joblib import tqdm_joblib
-from ..utils.config import run_autodock4
+from utils.config import run_autodock4
 from utils.data_utils import parse_dlg_results
 
 
@@ -82,6 +82,8 @@ def main(args):
 
 
 
+    if args.dpf_dir is None:
+        raise ValueError("Provide --dpf or --dpf-dir")
     dpf_dir = Path(args.dpf_dir).resolve()
     output_dir = Path(args.output_dir).resolve() if args.output_dir else None
     success, failures = run_batch(dpf_dir, output_dir, args.num_workers, args.skip_existing)
@@ -97,9 +99,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     # source_group = parser.add_mutually_exclusive_group(required=True)       /data3/lpw/dock_workdir/autodock/test/ligand_0000_3I03_protein_pocket.dpf   
     parser.add_argument("--dpf",     type=Path,  help="Single .dpf file (single mode).")
-    parser.add_argument("--dpf-dir", type=Path,default='/data3/lpw/dock_workdir/autodock/test',  help="Directory of .dpf files (batch mode).")
-    parser.add_argument("--output-dir",    type=Path, default='/data3/lpw/dock_workdir/autodock/test', help="Output directory.")
+    parser.add_argument("--dpf-dir", type=Path, help="Directory of .dpf files (batch mode).")
+    parser.add_argument("--output-dir",    type=Path, help="Output directory.")
     parser.add_argument("--skip-existing", action="store_true", help="Skip jobs whose .dlg already exists.")
-    parser.add_argument("--num_workers",   type=int, default=20, help="Parallel workers (batch mode).")
+    parser.add_argument("--num_workers",   type=int, default=1, help="Parallel workers (batch mode).")
     raise SystemExit(main(parser.parse_args()))
 

@@ -77,6 +77,9 @@ def dock_one(
     try:
 
         poses_pdbqt.parent.mkdir(parents=True, exist_ok=True)
+        if skip_existing and poses_pdbqt.is_file() and poses_pdbqt.stat().st_size:
+            row.update(status="skipped", best_affinity=best_affinity(poses_pdbqt))
+            return row
         v = vina.Vina(sf_name="ad4", cpu=cpu, seed=seed or 0, verbosity=0)
         v.load_maps(str(maps_prefix))
         v.set_ligand_from_file(str(ligand))
@@ -109,15 +112,17 @@ def build_jobs(args) -> list[tuple[Path, Path]]:
         ligand = args.ligand.resolve()
         return [(ligand, output_dir / f"{ligand.stem}_ad4_out.pdbqt")]
 
+    if args.ligand_dir is None:
+        raise ValueError("Provide --ligand or --ligand-dir")
     ligand_dir = args.ligand_dir.resolve()
-    paths = ligand_dir.glob("*.pdbqt")
+    paths = ligand_dir.rglob("*.pdbqt") if args.recursive else ligand_dir.glob("*.pdbqt")
     ligands = sorted(path.resolve() for path in paths)
     if not ligands:
         raise FileNotFoundError(f"No ligand PDBQT files in {ligand_dir}")
     return [
             (
                 ligand,
-                output_dir / f"{ligand.stem}_ad4_out.pdbqt",
+                output_dir / ligand.parent.relative_to(ligand_dir) / f"{ligand.stem}_ad4_out.pdbqt",
             )
             for ligand in ligands
     ]
@@ -173,4 +178,4 @@ if __name__ == "__main__":
                         help="Concurrent ligands; total CPU use is approximately jobs × cpu.")
     parser.add_argument("--recursive", action="store_true", help="Find ligands in subdirectories.")
     parser.add_argument("--skip-existing", action="store_true")
-    run(parser.parse_args())
+    raise SystemExit(run(parser.parse_args()))

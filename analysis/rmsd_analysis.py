@@ -7,6 +7,7 @@ from einops import reduce
 import os
 import pandas as pd
 from collections import defaultdict
+import argparse
 
 
 # for pair data rmsd analysis is necessary
@@ -68,11 +69,12 @@ for pdb_id in sorted(os.listdir(result_dir)):
 
 
 
-data_dir = '/data3/lpw/data/covdocker/data/processed/bonded'
-result_dir = '/data3/lpw/dock_workdir/autodock_gpu/cov200_test/dock_result'
-main(data_dir, result_dir)
-
-print(read_dlg('/data3/lpw/dock_workdir/autodock_gpu/cov200_test/dock_result/7RBZ/7RBZ.dlg'))
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Legacy AutoDock-GPU top-pose RMSD analysis")
+    parser.add_argument("--data-dir", required=True)
+    parser.add_argument("--result-dir", required=True)
+    args = parser.parse_args()
+    main(args.data_dir, args.result_dir)
 
 
 

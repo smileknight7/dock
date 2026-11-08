@@ -14,7 +14,7 @@ from pathlib import Path
 import pandas as pd
 from rdkit import Chem
 from utils.file_utils import load_mol
-from ..utils.config import PREPARE_LIGAND4, run_mgltools_script
+from utils.config import PREPARE_LIGAND4, run_mgltools_script
 from joblib import Parallel, delayed
 from tqdm_joblib import tqdm_joblib
 from tqdm import tqdm
@@ -38,7 +38,7 @@ def prepare_ligand_file(ligand_file, cache_dir, output_dir):
     cache_file = cache_dir / f"{ligand_id}.pdb"
     output_file = output_dir / f"{ligand_id}.pdbqt"
     ligand_mol = load_mol(ligand_file)
-    ligand_mol = generate_conformer(ligand_mol, str(ligand_file))
+    ligand_mol = generate_conformer(ligand_mol)
     Chem.MolToPDBFile(ligand_mol, str(cache_file))
     prepare_ligand(ligand_mol, output_file)
     # autodock的处理方法
@@ -54,7 +54,7 @@ def prepare_ligand_files(ligand_dir):
         lig_id = ligand_file.stem
         try:
             ligand_mol = load_mol(str(ligand_file))
-            ligand_mol = generate_conformer(ligand_mol, str(ligand_file))
+            ligand_mol = generate_conformer(ligand_mol)
             success_list.append((lig_id, ligand_mol))
         except Exception as e:
             print(f"FAIL {lig_id}: {e}", file=sys.stderr)
@@ -72,8 +72,8 @@ def read_smiles_records(csv_path, id_column=None, smiles_column="smiles"):
     for item in items:
         lig_id = item[0]
         try:
-            lig_mol = load_mol(item, is_smiles=True)
-            success_list.append(lig_id, lig_mol)
+            lig_mol = generate_conformer(load_mol(item[1], is_smiles=True))
+            success_list.append((lig_id, lig_mol))
         except Exception as e:
             print(f"FAIL {item[0]}: {e}", file=sys.stderr)
     return success_list
@@ -118,20 +118,23 @@ def run_batch(ligand_list, cache_dir, output_dir, num_workers):
 
 
 def main(args: argparse.Namespace) -> int:
+    if args.output_dir is None:
+        raise ValueError("--output-dir is required")
+    cache_dir = args.cache_dir or args.output_dir / "cache"
     if args.ligand_file is not None:
         if args.num_workers != 1:
             raise ValueError("--jobs is only valid for batch modes")
-        return prepare_ligand_file(args.ligand_file, args.cache_dir, args.output_dir)
+        return prepare_ligand_file(args.ligand_file, cache_dir, args.output_dir)
 
-    if args.output_dir is None:
-        raise ValueError("--output-dir is required for --ligand-dir and --csv")
+    if (args.ligand_dir is None) == (args.ligand_csv is None):
+        raise ValueError("Provide --ligand-dir or --ligand-csv")
 
     if args.ligand_dir is not None:
-        inputs = prepare_ligand_files(args.ligand_dir, args.cache_dir)
+        inputs = prepare_ligand_files(args.ligand_dir)
     else:
-        inputs = read_smiles_records(args.ligand_csv, args.cache_dir, args.id_column, args.smiles_column)
+        inputs = read_smiles_records(args.ligand_csv, args.id_column, args.smiles_column)
 
-    success, failures = run_batch(inputs, args.cache_dir, args.output_dir, args.num_workers)
+    success, failures = run_batch(inputs, cache_dir, args.output_dir, args.num_workers)
     for ligand_id, path in success.items():
         print(f"OK\t{ligand_id}\t{path}")
     for ligand_id, msg in failures:
@@ -145,10 +148,10 @@ if __name__ == "__main__":
     # source_group = parser.add_mutually_exclusive_group(required=True)
     parser.add_argument("--ligand-file", type=str, help="Single ligand file (.sdf/.mol2/.mol/.pdb).")
     parser.add_argument("--ligand-dir", type=Path, help="Directory containing ligand files.")
-    parser.add_argument("--ligand-csv", type=Path, default='/data3/lpw/data/dock_data/zinc_50.csv', help="CSV file containing a SMILES column.")
-    parser.add_argument("--cache-dir", type=Path, default='/data3/lpw/dock_workdir/autodock/cache', help="Directory for intermediate files.")
-    parser.add_argument("--output-dir", type=Path, default='/data3/lpw/dock_workdir/autodock/test/ligands', help="Output directory for batch mode or single-file mode.")
+    parser.add_argument("--ligand-csv", type=Path, help="CSV file containing a SMILES column.")
+    parser.add_argument("--cache-dir", type=Path, help="Directory for intermediate files.")
+    parser.add_argument("--output-dir", type=Path, required=True, help="Output directory for batch mode or single-file mode.")
     parser.add_argument("--smiles-column", default="SMILES", help="CSV column containing SMILES strings.")
     parser.add_argument("--id-column", default=None, help="Optional CSV column used as ligand IDs.")
-    parser.add_argument("--num_workers", type=int, default=10, help="Parallel workers for batch mode.")
+    parser.add_argument("--num_workers", type=int, default=1, help="Parallel workers for batch mode.")
     raise SystemExit(main(parser.parse_args()))

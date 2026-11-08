@@ -25,7 +25,7 @@ from utils.data_utils import box_size_to_npts, compute_box_bbox
 
 
 
-from .config import (GRID_SPACING, PREPARE_DPF4, PREPARE_GPF4, PREPARE_RECEPTOR4,
+from ..utils.config import (GRID_SPACING, PREPARE_DPF4, PREPARE_GPF4, PREPARE_RECEPTOR4,
                      run_autogrid4, run_mgltools_script)
 
 

@@ -62,7 +62,8 @@ def run_batch(items, output_dir, num_workers, is_smiles):
 
 
 def main(args):
-    
+    if not any((args.ligand_file, args.ligand_dir, args.ligand_csv)):
+        raise ValueError("Provide --ligand-file, --ligand-dir, or --ligand-csv")
     if args.ligand_file is not None:
         if args.num_workers != 1:
             raise ValueError("--num_workers is only valid for batch modes")
@@ -100,7 +101,7 @@ if __name__ == "__main__":
     parser.add_argument("--ligand-file",   type=Path, help="Single ligand file (.sdf/.mol2/.mol/.pdb).")
     parser.add_argument("--ligand-dir",    type=Path, help="Directory containing ligand files.")
     parser.add_argument("--ligand-csv",    type=Path, help="CSV file containing a SMILES column.")
-    parser.add_argument("--output-dir",    type=Path, help="Output directory.")
+    parser.add_argument("--output-dir",    type=Path, required=True, help="Output directory.")
     parser.add_argument("--smiles-column", default="SMILES", help="CSV column containing SMILES strings.")
     parser.add_argument("--id-column",     default=None, help="Optional CSV column used as ligand IDs.")
     parser.add_argument("--num_workers",   type=int, default=1, help="Parallel workers for batch mode.")
@@ -109,4 +110,4 @@ if __name__ == "__main__":
     raise SystemExit(main(parser.parse_args()))
 
 # 测试方式
-# python -m autodock_gpu.ligand_prepare --ligand-dir /data3/lpw/data/covdocker/data/processed/bonded --data_list /home/lpw/ForceFM/data/splits/covdocker/cov200_list.txt --output-dir /data3/lpw/dock_workdir/autodock_gpu/cov200_test/lig_pdbqt 
+# python -m autodock_gpu.ligand_prepare --ligand-dir /data3/lpw/data/covdocker/data/processed/bonded --data_list /home/lpw/ForceFM/data/splits/covdocker/cov200_list.txt --output-dir /data3/lpw/dock_workdir/autodock_gpu/cov200_test/lig_pdbqt

@@ -20,12 +20,13 @@ AUTODOCK4 = Path("/data3/lpw/software/autodock4/x86_64Linux2/autodock4")
 GRID_SPACING = 0.375
 
 
-def run_command(cmd: list[str], cwd: Path, label: str = "command") -> None:
+def run_command(cmd: list[str], cwd: Path, label: str = "command", env=None) -> None:
     result = subprocess.run(
         cmd,
         cwd=cwd,
         text=True,
         capture_output=True,
+        env=env,
     )
 
     if result.returncode:

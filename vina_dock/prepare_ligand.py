@@ -19,54 +19,21 @@ from joblib import Parallel, delayed
 from tqdm import tqdm
 from tqdm_joblib import tqdm_joblib
 from meeko import MoleculePreparation, PDBQTWriterLegacy
+from utils.data_utils import prepare_ligand, generate_conformer
+from utils.file_utils import load_mol
 
 
-def load_mol(source, is_smiles):
-    if is_smiles:
-        mol = Chem.MolFromSmiles(source)
-    else:
-        suffix = Path(source).suffix.lower()
-        if suffix == ".sdf":
-            mol = Chem.SDMolSupplier(source, removeHs=False)[0]
-        elif suffix == ".mol2":
-            mol = Chem.MolFromMol2File(source, removeHs=False)
-        elif suffix == ".mol":
-            mol = Chem.MolFromMolFile(source, removeHs=False)
-        elif suffix == ".pdb":
-            mol = Chem.MolFromPDBFile(source, removeHs=False)
-        else:
-            raise ValueError(f"Unsupported format: {source}")
-    if mol is None:
-        raise ValueError(f"RDKit failed to load: {source}")
-    return mol
 
 
-def embed_3d(mol):
-    mol = Chem.AddHs(mol, addCoords=True)
-    if mol.GetNumConformers() == 0 or not mol.GetConformer().Is3D():
-        if AllChem.EmbedMolecule(mol, AllChem.ETKDGv3()) != 0:
-            raise ValueError("3D embedding failed")
-    if AllChem.MMFFHasAllMoleculeParams(mol):
-        AllChem.MMFFOptimizeMolecule(mol, maxIters=200)
-    elif AllChem.UFFHasAllMoleculeParams(mol):
-        AllChem.UFFOptimizeMolecule(mol, maxIters=200)
-    return mol
 
-
-def write_pdbqt(mol, output_file):
-    setup = MoleculePreparation().prepare(mol)[0]
-    text, ok, err = PDBQTWriterLegacy.write_string(setup)
-    if not ok:
-        raise RuntimeError(f"Meeko PDBQT write failed: {err}")
-    Path(output_file).write_text(text)
 
 
 def process_one(ligand_id, source, output_dir, is_smiles):
     output_file = Path(output_dir) / f"{ligand_id}.pdbqt"
     mol = load_mol(source, is_smiles)
-    mol = embed_3d(mol)
+    mol = generate_conformer(mol)
     mol.SetProp("_Name", ligand_id)
-    write_pdbqt(mol, output_file)
+    prepare_ligand(mol, output_file)
     return str(output_file)
 
 
@@ -109,6 +76,8 @@ def run_batch(items, output_dir, num_workers, is_smiles):
 
 
 def main(args):
+    if not any((args.ligand_file, args.ligand_dir, args.ligand_csv)):
+        raise ValueError("Provide --ligand-file, --ligand-dir, or --ligand-csv")
     if args.ligand_file is not None:
         if args.num_workers != 1:
             raise ValueError("--num_workers is only valid for batch modes")
@@ -117,12 +86,16 @@ def main(args):
                            args.output_dir, is_smiles=False)
         print(path)
         return 0
-
+    
     if args.ligand_dir is not None:
         items = collect_ligand_files(args.ligand_dir)
+        if args.limit is not None:
+            items = items[:args.limit]
         is_smiles = False
     else:
         items = read_smiles_records(args.ligand_csv, args.id_column, args.smiles_column)
+        if args.limit is not None:
+            items = items[:args.limit]
         is_smiles = True
 
     success, failures = run_batch(items, args.output_dir, args.num_workers, is_smiles)
@@ -138,9 +111,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ligand-file",   type=Path, help="Single ligand file (.sdf/.mol2/.mol/.pdb).")
     parser.add_argument("--ligand-dir",    type=Path, help="Directory containing ligand files.")
-    parser.add_argument("--ligand-csv",    type=Path, default= '/data3/lpw/data/dock_data/zinc_50.csv', help="CSV file containing a SMILES column.")
-    parser.add_argument("--output-dir",    type=Path, default='/data3/lpw/dock_workdir/vina/ligands', help="Output directory.")
+    parser.add_argument("--ligand-csv",    type=Path, help="CSV file containing a SMILES column.")
+    parser.add_argument("--limit",         type=int, help= 'limit of ligand')
+    parser.add_argument("--output-dir",    type=Path, required=True, help="Output directory.")
     parser.add_argument("--smiles-column", default="SMILES", help="CSV column containing SMILES strings.")
     parser.add_argument("--id-column",     default=None, help="Optional CSV column used as ligand IDs.")
-    parser.add_argument("--num_workers",   type=int, default=10, help="Parallel workers for batch mode.")
+    parser.add_argument("--num_workers",   type=int, default=1, help="Parallel workers for batch mode.")
     raise SystemExit(main(parser.parse_args()))
+
+# 示例
+
+# python -m vina_dock.prepare_ligand --ligand-csv /home/lpw/dock_scripts/autodock/data/zinc.csv --limit 10 --output-dir /data3/lpw/dock_workdir/vina/ligand

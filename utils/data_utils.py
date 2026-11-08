@@ -9,6 +9,13 @@ from scipy import spatial
 from meeko import MoleculePreparation, PDBQTWriterLegacy
 from pathlib import  Path
 import math
+from utils.config import GRID_SPACING
+
+
+
+
+
+
 
 def canonicalize_mol(mol):
     Chem.MolToSmiles(mol)
@@ -51,6 +58,20 @@ def parse_protein(pdb_path):
     df_protein = pd.concat([ppdb.df["ATOM"], ppdb.df["HETATM"]], ignore_index=True)         # dim=0 拼接成一列
 
     return df_protein
+
+
+# 解决pocket读取过程中默认H出错
+def remove_protein_H(protein_file):
+    mol = Chem.MolFromPDBFile(
+    str(protein_file), sanitize=False, removeHs=False
+)
+    if mol is None:
+        raise ValueError(f"Cannot read receptor: {protein_file}")
+
+    mol = Chem.RemoveAllHs(mol, sanitize=False)
+    pdb_str = Chem.MolToPDBBlock(mol)
+    return pdb_str
+
 
 
 # 划分口袋

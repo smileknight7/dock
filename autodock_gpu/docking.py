@@ -4,8 +4,8 @@
 Modes:
   Single ligand:  --ligand <pdbqt> --fld <fld>
   Batch ligands:  --ligand-dir <dir> --fld <fld>
-  Single DPF:     --dpf <dpf>            (CPU-pipeline compatibility)
-  Batch DPFs:     --dpf-dir <dir>        (CPU-pipeline compatibility)
+  Single DPF:     --dpf <dpf>            (AutoDock-GPU compatible DPF only)
+  Batch DPFs:     --dpf-dir <dir>        (AutoDock-GPU compatible DPF only)
 
 Note on --num_workers: autodock_gpu uses one GPU device. Setting workers > 1
 only helps if you have multiple GPUs (each worker pinned to a different
@@ -26,7 +26,8 @@ from tqdm_joblib import tqdm_joblib
 from utils.file_utils import load_idx_list
 from .config import (ADGPU_BINARY, CONDA_PREFIX, DEFAULT_DEVICE,
                      DEFAULT_NRUN, DEFAULT_NEV, DEFAULT_HEURISTICS)
-from  utils.config import run_command
+from utils.config import run_command
+from utils.data_utils import parse_dlg_results
 
 SUMMARY_KEYWORDS = ("Estimated Free Energy of Binding", "USER    Run =", "USER    Cluster Rank =")
 
@@ -53,14 +54,17 @@ def run_autodock_gpu(ligand_pdbqt, fld_path, output_dir, *,
         "--xmloutput", "1",
         "--dlgoutput", "1",
     ]
-    run_command(cmd, output_dir, conda_prefix)
+    env = os.environ.copy()
+    env["LD_LIBRARY_PATH"] = f"{conda_prefix}/lib:{env.get('LD_LIBRARY_PATH', '')}"
+    run_command(cmd, output_dir, "autodock-gpu", env=env)
     return str(output_dir / f"{name}.dlg")
 
 # dpf是autodock预处理的输入文件
 def run_autodock_gpu_dpf(dpf_path, output_dir, *,
                          binary=ADGPU_BINARY, conda_prefix=CONDA_PREFIX,
                          device=DEFAULT_DEVICE):
-    """Run autodock_gpu using DPF import (CPU-pipeline compatibility)."""
+    """Run autodock_gpu using its native DPF import."""
+    # shortcut: DPF is passed through unchanged; translate MGLTools tokens only when that compatibility is required.
     dpf_path = Path(dpf_path)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -73,7 +77,9 @@ def run_autodock_gpu_dpf(dpf_path, output_dir, *,
         "--xmloutput", "1",
         "--dlgoutput", "1",
     ]
-    run_command(cmd, output_dir, conda_prefix)
+    env = os.environ.copy()
+    env["LD_LIBRARY_PATH"] = f"{conda_prefix}/lib:{env.get('LD_LIBRARY_PATH', '')}"
+    run_command(cmd, dpf_path.parent, "autodock-gpu", env=env)
     return str(output_dir / f"{name}.dlg")
 
 
@@ -105,10 +111,11 @@ def collect_ligand_jobs(ligand_dir, fld_path, output_dir, skip_existing, pattern
 
     jobs = []
     for lig in ligands:
-        dlg = output_dir / f"{lig.stem}.dlg"
+        out = output_dir / lig.parent.relative_to(ligand_dir)
+        dlg = out / f"{lig.stem}.dlg"
         if skip_existing and dlg.exists():
             continue
-        jobs.append((lig, fld_path, output_dir))
+        jobs.append((lig, fld_path, out))
     return jobs
 
 
@@ -120,10 +127,11 @@ def collect_dpf_jobs(dpf_dir, output_dir, skip_existing):
         raise FileNotFoundError(f"No .dpf in {dpf_dir}")
     jobs = []
     for dpf in dpfs:
-        dlg = output_dir / f"{dpf.stem}.dlg"
+        out = output_dir / dpf.parent.relative_to(dpf_dir)
+        dlg = out / f"{dpf.stem}.dlg"
         if skip_existing and dlg.exists():
             continue
-        jobs.append((dpf, output_dir))
+        jobs.append((dpf, out))
     return jobs
 
 
@@ -204,7 +212,7 @@ def main(args):
                                binary=binary, conda_prefix=conda_prefix,
                                device=args.device, nrun=args.nrun,
                                nev=args.nev, heuristics=args.heuristics)
-        for line in parse_dlg_summary(dlg)[:12]:
+        for line in parse_dlg_results(dlg)[:12]:
             print(line)
         return 0
 
@@ -213,7 +221,7 @@ def main(args):
         dpf = Path(args.dpf).resolve()
         dlg = run_autodock_gpu_dpf(dpf, output_dir,
                                    binary=binary, conda_prefix=conda_prefix, device=args.device)
-        for line in parse_dlg_summary(dlg)[:12]:
+        for line in parse_dlg_results(dlg)[:12]:
             print(line)
         return 0
 
@@ -252,7 +260,16 @@ def main(args):
         for name, msg in failures:
             print(f"FAIL\t{name}\t{msg}", file=sys.stderr)
         print(f"\nDone. OK: {len(success)}, Failed: {len(failures)}", file=sys.stderr)
-        return 1 if failures else 0
+        return 1 if failures or missing else 0
+
+    else:
+        raise ValueError("Provide a ligand, DPF, ligand directory, or paired ligand/grid directories")
+
+    for name, path in success.items():
+        print(f"OK\t{name}\t{path}")
+    for name, msg in failures:
+        print(f"FAIL\t{name}\t{msg}", file=sys.stderr)
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":
@@ -263,7 +280,7 @@ if __name__ == "__main__":
     parser.add_argument("--fld",            type=Path, default=None, help="Grid .maps.fld file.")
     parser.add_argument("--dpf",            type=Path, default=None, help="Single DPF (CPU-pipeline compat).")
     parser.add_argument("--dpf-dir",        type=Path, default=None, help="Directory of DPFs (CPU-pipeline compat).")
-    parser.add_argument("--output-dir",     type=Path, default=None, help="Output directory.")
+    parser.add_argument("--output-dir",     type=Path, required=True, help="Output directory.")
     parser.add_argument("--ligand-dir",     type=Path, default=None, help="Directory of ligand PDBQTs.")
     parser.add_argument("--grid-dir",       type=Path, default=None, help="Directory of grid .maps.fld files.")
     parser.add_argument("--data-list",      type=Path, default=None, help="List of ligand/grid pairs (one per line).")
@@ -275,7 +292,7 @@ if __name__ == "__main__":
     parser.add_argument("--nev",            type=int, default=DEFAULT_NEV)
     parser.add_argument("--heuristics",     type=int, choices=(0, 1), default=DEFAULT_HEURISTICS)
     parser.add_argument("--skip-existing",  action="store_true", help="Skip jobs whose .dlg already exists.")
-    parser.add_argument("--num_workers",    type=int, default=2, help="Parallel workers (batch mode). See module docstring.")
+    parser.add_argument("--num_workers",    type=int, default=1, help="Parallel workers (batch mode). See module docstring.")
     raise SystemExit(main(parser.parse_args()))
 
 

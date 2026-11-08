@@ -354,9 +354,9 @@ def main():
     parser = argparse.ArgumentParser(
         description="Analyze AutoDock batch docking results into a summary DataFrame.",
     )
-    parser.add_argument("--input-dir", type=Path, default='/data3/lpw/dock_workdir/autodock/test',
+    parser.add_argument("--input-dir", type=Path, required=True,
                         help="Directory containing .dlg files.")
-    parser.add_argument("--output-dir", type=Path, default='/data3/lpw/dock_workdir/autodock/test'  ,
+    parser.add_argument("--output-dir", type=Path, required=True,
                         help="Output directory for summary CSV / TXT / poses.")
     parser.add_argument("--top-n", type=int, default=10,
                         help="Number of best ligands to report (default: 10).")
